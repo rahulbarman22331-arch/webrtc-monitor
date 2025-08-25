@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>View Screen</title>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <h2>👀 View Screen</h2>
+  <input type="text" id="keyInput" placeholder="Enter Session Key" />
+  <button id="joinBtn">Join</button>
+  <p id="status"></p>
+  <video id="video" autoplay playsinline style="width:100%; border:1px solid #ccc;"></video>
+
+  <script>
+    const socket = io();
+    const joinBtn = document.getElementById("joinBtn");
+    const keyInput = document.getElementById("keyInput");
+    const status = document.getElementById("status");
+    const video = document.getElementById("video");
+
+    let pc;
+
+    joinBtn.onclick = () => {
+      const key = keyInput.value.trim();
+      if (!key) return alert("Enter a session key");
+      socket.emit("join-session", key);
+    };
+
+    socket.on("session-joined", async (success) => {
+      if (!success) {
+        status.innerText = "Invalid session key ❌";
+        return;
+      }
+      status.innerText = "Connected. Waiting for stream...";
+
+      pc = new RTCPeerConnection();
+
+      pc.ontrack = (event) => {
+        video.srcObject = event.streams[0];
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit("signal", { to: hostId, signal: { candidate: event.candidate } });
+        }
+      };
+
+      let hostId;
+      socket.on("signal", async (data) => {
+        hostId = data.from;
+        if (data.signal.description) {
+          await pc.setRemoteDescription(data.signal.description);
+          if (data.signal.description.type === "offer") {
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socket.emit("signal", { to: hostId, signal: { description: answer } });
+          }
+        }
+        if (data.signal.candidate) {
+          try {
+            await pc.addIceCandidate(data.signal.candidate);
+          } catch (e) {
+            console.error("Error adding ICE candidate", e);
+          }
+        }
+      });
+    });
+  </script>
+</body>
+</html>
