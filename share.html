@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Share Screen</title>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <h2>📲 Screen Share</h2>
+  <button id="startBtn">Start Sharing</button>
+  <p id="status"></p>
+
+  <script>
+    const socket = io();
+    const startBtn = document.getElementById("startBtn");
+    const status = document.getElementById("status");
+
+    let pc;
+
+    startBtn.onclick = async () => {
+      socket.emit("create-session");
+    };
+
+    socket.on("session-created", async (sessionKey) => {
+      status.innerText = "Session started. Key sent to Telegram ✅";
+
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      pc = new RTCPeerConnection();
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit("signal", { to: viewerId, signal: { candidate: event.candidate } });
+        }
+      };
+
+      let viewerId;
+      socket.on("viewer-joined", async (id) => {
+        viewerId = id;
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit("signal", { to: viewerId, signal: { description: offer } });
+      });
+
+      socket.on("signal", async (data) => {
+        if (data.signal.description) {
+          await pc.setRemoteDescription(data.signal.description);
+          if (data.signal.description.type === "answer") {
+            console.log("Viewer connected ✅");
+          }
+        }
+        if (data.signal.candidate) {
+          try {
+            await pc.addIceCandidate(data.signal.candidate);
+          } catch (e) {
+            console.error("Error adding ICE candidate", e);
+          }
+        }
+      });
+    });
+  </script>
+</body>
+</html>
